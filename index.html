@@ -1,49 +1,68 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>STEMI PP · DCBP</title>
-<link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#ffffff">
-<style>
-body{font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:18px;line-height:1.35}
-h1{font-size:1.25rem;margin:0 0 6px}.card{border:1px solid #ddd;border-radius:12px;padding:12px;margin:10px 0}
-.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
-label{font-weight:600;display:block}input{width:100%;padding:10px;border:1px solid #ccc;border-radius:10px;font-size:16px}
-button{padding:10px 12px;border:1px solid #bbb;border-radius:10px;background:#fafafa;font-size:16px;width:100%}
-.pill{display:inline-block;padding:2px 8px;border:1px solid #ccc;border-radius:999px;font-size:.85rem;margin-bottom:4px}
-.out{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:1.15rem}.muted{color:#666;font-size:.9rem}
-.flag{padding:10px 12px;border-radius:10px;font-weight:600}.high{background:#fff1f0;border-left:4px solid #ff4d4f}
-.mod{background:#fffbe6;border-left:4px solid #faad14}.low{background:#f6ffed;border-left:4px solid #52c41a}
-.small{font-size:.9rem}footer{margin-top:16px;font-size:12px;color:#666}
-</style>
-</head>
-<body>
-<h1>STEMI anteriore — Stima SV basso (PP & DCBP)</h1>
-<div class="muted small">MBP: √(SBP×DBP). Pressione: NIBP brachiale. Funziona offline una volta aggiunta alla Home.</div>
+<script>
+// registra/aggiorna il SW
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js'); }
 
-<div class="card">
-  <div class="row">
-    <div><label>SBP (mmHg)</label><input id="sbp" type="text" inputmode="decimal" value="100"></div>
-    <div><label>DBP (mmHg)</label><input id="dbp" type="text" inputmode="decimal" value="60"></div>
-    <div><label>HR (bpm)</label><input id="hr" type="text" inputmode="numeric" value="95"></div>
-    <div><label>Età (anni)</label><input id="age" type="text" inputmode="numeric" value="72"></div>
-  </div>
-  <div style="margin-top:10px;"><button id="btn">Calcola</button></div>
-</div>
+function parseNum(id){
+  const raw = document.getElementById(id).value.trim();
+  if (!raw) return NaN;
+  const norm = raw.replace(',', '.');
+  const v = parseFloat(norm);
+  return isFinite(v) ? v : NaN;
+}
+function r1(x){ return (!isFinite(x)) ? "—" : (Math.round(x*10)/10); }
 
-<div class="card">
-  <div class="row">
-    <div><span class="pill">PP periferica</span><div id="pp" class="out">—</div><div class="muted small">mmHg</div></div>
-    <div><span class="pill">DCBP (cSBP)</span><div id="dcbp" class="out">—</div><div class="muted small">mmHg</div></div>
-    <div><span class="pill">PP aortica stimata</span><div id="pp_a" class="out">—</div><div class="muted small">mmHg</div></div>
-    <div><span class="pill">Shock Index</span><div id="shock" class="out">—</div><div class="muted small">HR / SBP</div></div>
-  </div>
-  <div id="flag" class="flag low small" style="margin-top:10px;">—</div>
-</div>
+function update(){
+  const sbp = parseNum('sbp');
+  const dbp = parseNum('dbp');
+  const hr  = parseNum('hr');
+  const age = parseNum('age');
 
-<div class="card small">
-  <b>Cut-off rapidi</b>
-  <ul>
-    <li><b>PP aortica</b> &lt; 35 → forte sospetto SV basso; 35–45 →
+  let pp=null, mbp=null, dcbp=null, pp_a=null, si=null;
+  if (isFinite(sbp) && isFinite(dbp) && sbp>0 && dbp>0){
+    pp = sbp - dbp;
+    mbp = Math.sqrt(sbp*dbp);
+    dcbp = (mbp*mbp)/dbp;
+    pp_a = dcbp - dbp;
+  }
+  if (isFinite(sbp) && isFinite(hr) && sbp>0){ si = hr/sbp; }
+
+  let txt = "", cls = "low";
+  const highPPa = (isFinite(pp_a) && pp_a < 35);
+  const highPPperAge = (isFinite(age) && age>=60 && isFinite(pp) && pp < 40);
+  const highSI = (isFinite(si) && si >= 1.0);
+
+  if (highPPa || highPPperAge){
+    txt = "ALTA PROB. di SV basso → Eco immediata; se instabile e PCI urgente, MCS SUGGERITO (IABP/Impella).";
+    cls = "high";
+  } else if ((isFinite(pp_a) && pp_a < 45) || (isFinite(age)&&age>=60 && isFinite(pp) && pp < 45) || highSI){
+    txt = "PROB. INTERMEDIA → integra con clinica, lattati, eco precoce. MCS caso per caso.";
+    cls = "mod";
+  } else {
+    txt = "BASSA PROB. di SV molto basso in base a PP. Conferma con eco.";
+    cls = "low";
+  }
+
+  document.getElementById('pp').textContent   = r1(pp);
+  document.getElementById('dcbp').textContent = r1(dcbp);
+  document.getElementById('pp_a').textContent = r1(pp_a);
+
+  // Se hai aggiunto il box Shock Index, aggiorna anche quello:
+  const shockEl = document.getElementById('shock');
+  if (shockEl) shockEl.textContent = r1(si);
+
+  const flag = document.getElementById('flag');
+  flag.className = "flag " + cls + " small";
+  flag.textContent = txt;
+}
+
+// calcola su click
+document.getElementById('btn').addEventListener('click', update);
+// calcola anche mentre digiti
+['sbp','dbp','hr','age'].forEach(id => {
+  const el = document.getElementById(id);
+  ['input','change','keyup','blur'].forEach(evt => el.addEventListener(evt, update));
+});
+
+// prima esecuzione
+document.addEventListener('DOMContentLoaded', update);
+</script>
